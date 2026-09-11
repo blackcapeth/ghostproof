@@ -1,0 +1,484 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>GHOSTPROOF — a zero-knowledge memory game</title>
+<style>
+  @font-face {
+    font-family: 'JBM';
+    src: local('JetBrains Mono');
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0;
+    padding: 0;
+    background: #0a0c10;
+    color: #e8ecf1;
+    font-family: 'JetBrains Mono', 'Courier New', monospace;
+    min-height: 100vh;
+  }
+  body {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 32px 16px;
+  }
+  .wrap {
+    width: 100%;
+    max-width: 480px;
+  }
+  .titlebar {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    margin-bottom: 4px;
+  }
+  h1 {
+    font-size: 20px;
+    font-weight: 700;
+    letter-spacing: 0.5px;
+    margin: 0;
+    color: #f4f6f8;
+  }
+  .rounds {
+    font-size: 12px;
+    color: #7a8699;
+  }
+  .subtitle {
+    font-size: 12px;
+    color: #7a8699;
+    margin: 0 0 20px 0;
+    line-height: 1.5;
+  }
+  .console {
+    background: #11151c;
+    border: 1px solid #232a35;
+    border-radius: 6px;
+    padding: 20px;
+  }
+  .status-line {
+    font-size: 13px;
+    color: #8b7cf6;
+    margin-bottom: 14px;
+    min-height: 18px;
+    letter-spacing: 0.3px;
+  }
+  .status-line.accept { color: #4dd8c4; }
+  .status-line.reject { color: #e14f8a; }
+  .timerbar {
+    height: 3px;
+    background: #1c222c;
+    border-radius: 2px;
+    overflow: hidden;
+    margin-bottom: 18px;
+  }
+  .timerbar-fill {
+    height: 100%;
+    background: #8b7cf6;
+    width: 100%;
+    transform-origin: left;
+  }
+  .grid {
+    display: grid;
+    grid-template-columns: repeat(5, 1fr);
+    gap: 6px;
+    margin-bottom: 18px;
+  }
+  .cell {
+    aspect-ratio: 1;
+    border-radius: 3px;
+    background: #1c222c;
+    border: 1px solid #232a35;
+    cursor: default;
+    transition: background 120ms ease, border-color 120ms ease;
+    position: relative;
+  }
+  .cell.lit {
+    background: #8b7cf6;
+    border-color: #8b7cf6;
+  }
+  .cell.locked {
+    background: #14181f;
+    border-color: #1c222c;
+  }
+  .cell.locked::after {
+    content: '';
+    position: absolute;
+    top: 50%; left: 50%;
+    width: 5px; height: 5px;
+    background: #2c3542;
+    border-radius: 50%;
+    transform: translate(-50%, -50%);
+  }
+  .cell.queried {
+    background: #1c222c;
+    border-color: #3a4658;
+    cursor: pointer;
+  }
+  .cell.queried:hover {
+    border-color: #7a8699;
+  }
+  .cell.revealed {
+    background: #4dd8c4;
+    border-color: #4dd8c4;
+    cursor: pointer;
+  }
+  .cell.flash-correct {
+    background: #4dd8c4 !important;
+    border-color: #4dd8c4 !important;
+  }
+  .cell.flash-wrong {
+    background: #e14f8a !important;
+    border-color: #e14f8a !important;
+  }
+  .cell.flash-missed {
+    background: #3a2733 !important;
+    border-color: #e14f8a !important;
+  }
+  .btn {
+    width: 100%;
+    padding: 12px;
+    background: transparent;
+    border: 1px solid #3a4658;
+    color: #e8ecf1;
+    font-family: inherit;
+    font-size: 13px;
+    letter-spacing: 0.5px;
+    border-radius: 4px;
+    cursor: pointer;
+    transition: border-color 120ms ease, background 120ms ease;
+  }
+  .btn:hover {
+    border-color: #8b7cf6;
+    background: #14181f;
+  }
+  .btn.accent {
+    border-color: #4dd8c4;
+    color: #4dd8c4;
+  }
+  .btn.accent:hover {
+    background: #10201d;
+  }
+  .lede {
+    font-size: 13px;
+    color: #b6bfcc;
+    line-height: 1.6;
+    margin: 0 0 18px 0;
+  }
+  .lede b { color: #e8ecf1; font-weight: 700; }
+  .avatar-wrap {
+    display: flex;
+    justify-content: center;
+    margin-bottom: 18px;
+  }
+  #avatarCanvas {
+    image-rendering: pixelated;
+    border: 1px solid #232a35;
+    border-radius: 6px;
+  }
+  .footer {
+    margin-top: 18px;
+    font-size: 11px;
+    color: #4a5566;
+    text-align: center;
+    line-height: 1.6;
+  }
+  .footer a { color: #7a8699; }
+  .hidden { display: none; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="titlebar">
+    <h1>GHOSTPROOF</h1>
+    <span class="rounds" id="roundsLabel"></span>
+  </div>
+  <p class="subtitle">a small zero-knowledge memory game, built while waiting on a whitelist</p>
+
+  <div class="console">
+
+    <div id="screen-intro">
+      <p class="lede">
+        The verifier shows you a hidden pattern for a moment, then hides it again.
+        A moment later it asks about <b>only some</b> of the cells. Prove you remember
+        exactly which of those were real &mdash; reveal nothing about the rest.
+        <br><br>
+        Five rounds. Get four right and your identity is verified.
+      </p>
+      <button class="btn accent" id="startBtn">begin verification</button>
+    </div>
+
+    <div id="screen-game" class="hidden">
+      <div class="status-line" id="statusLine">&nbsp;</div>
+      <div class="timerbar"><div class="timerbar-fill" id="timerFill"></div></div>
+      <div class="grid" id="grid"></div>
+      <button class="btn hidden" id="submitBtn">submit proof</button>
+    </div>
+
+    <div id="screen-end" class="hidden">
+      <div class="avatar-wrap"><canvas id="avatarCanvas" width="240" height="240"></canvas></div>
+      <p class="lede" id="endText" style="text-align:center;"></p>
+      <button class="btn accent" id="retryBtn">run again</button>
+    </div>
+
+  </div>
+
+  <div class="footer">
+    fan project, unaffiliated with any protocol team &middot; fork this on GitHub
+  </div>
+</div>
+
+<script>
+(function(){
+  var GRID_N = 5;
+  var TOTAL_CELLS = GRID_N * GRID_N;
+  var TOTAL_ROUNDS = 5;
+  var NEEDED_TO_PASS = 4;
+
+  var round = 0;
+  var successes = 0;
+  var secretCells = [];
+  var challengeCells = [];
+  var revealedByPlayer = {};
+  var timerHandle = null;
+  var timerRAF = null;
+
+  var screenIntro = document.getElementById('screen-intro');
+  var screenGame = document.getElementById('screen-game');
+  var screenEnd = document.getElementById('screen-end');
+  var statusLine = document.getElementById('statusLine');
+  var timerFill = document.getElementById('timerFill');
+  var gridEl = document.getElementById('grid');
+  var submitBtn = document.getElementById('submitBtn');
+  var roundsLabel = document.getElementById('roundsLabel');
+  var endText = document.getElementById('endText');
+
+  document.getElementById('startBtn').addEventListener('click', function(){
+    round = 0;
+    successes = 0;
+    screenIntro.classList.add('hidden');
+    screenGame.classList.remove('hidden');
+    screenEnd.classList.add('hidden');
+    nextRound();
+  });
+
+  document.getElementById('retryBtn').addEventListener('click', function(){
+    screenEnd.classList.add('hidden');
+    screenIntro.classList.remove('hidden');
+  });
+
+  submitBtn.addEventListener('click', function(){
+    clearTimer();
+    evaluateRound();
+  });
+
+  function pickRandomIndices(count, excludeSet){
+    var pool = [];
+    for (var i = 0; i < TOTAL_CELLS; i++){
+      if (!excludeSet || !excludeSet[i]) pool.push(i);
+    }
+    for (var i = pool.length - 1; i > 0; i--){
+      var j = Math.floor(Math.random() * (i + 1));
+      var t = pool[i]; pool[i] = pool[j]; pool[j] = t;
+    }
+    return pool.slice(0, count);
+  }
+
+  function buildGrid(){
+    gridEl.innerHTML = '';
+    for (var i = 0; i < TOTAL_CELLS; i++){
+      var c = document.createElement('div');
+      c.className = 'cell';
+      c.dataset.index = i;
+      gridEl.appendChild(c);
+    }
+  }
+
+  function cellEl(i){
+    return gridEl.children[i];
+  }
+
+  function nextRound(){
+    round++;
+    roundsLabel.textContent = 'round ' + round + ' / ' + TOTAL_ROUNDS + '  \u00b7  passed ' + successes;
+    submitBtn.classList.add('hidden');
+    buildGrid();
+
+    var secretCount = 6 + Math.min(2, Math.floor((round - 1) / 2));
+    secretCells = pickRandomIndices(secretCount);
+    var secretSet = {};
+    secretCells.forEach(function(i){ secretSet[i] = true; });
+
+    var decoyCount = 6;
+    var decoys = pickRandomIndices(decoyCount, secretSet);
+    challengeCells = secretCells.concat(decoys);
+
+    revealedByPlayer = {};
+
+    showWitness(secretSet);
+  }
+
+  function showWitness(secretSet){
+    setStatus('memorize the witness', '');
+    secretCells.forEach(function(i){ cellEl(i).classList.add('lit'); });
+
+    var duration = Math.max(1100, 2600 - (round - 1) * 300);
+    runTimer(duration, function(){
+      secretCells.forEach(function(i){ cellEl(i).classList.remove('lit'); });
+      showCommit(secretSet);
+    });
+  }
+
+  function showCommit(secretSet){
+    setStatus('committing\u2026', '');
+    for (var i = 0; i < TOTAL_CELLS; i++){
+      cellEl(i).classList.add('locked');
+    }
+    setTimeout(function(){
+      showChallenge();
+    }, 550);
+  }
+
+  function showChallenge(){
+    setStatus('reveal only what is asked \u2014 click the cells you know were real', '');
+    for (var i = 0; i < TOTAL_CELLS; i++){
+      cellEl(i).classList.remove('locked');
+    }
+    challengeCells.forEach(function(i){
+      var el = cellEl(i);
+      el.classList.add('queried');
+      el.addEventListener('click', onCellClick);
+    });
+    submitBtn.classList.remove('hidden');
+
+    var duration = 6000;
+    runTimer(duration, function(){
+      evaluateRound();
+    });
+  }
+
+  function onCellClick(e){
+    var i = parseInt(e.currentTarget.dataset.index, 10);
+    if (revealedByPlayer[i]){
+      delete revealedByPlayer[i];
+      e.currentTarget.classList.remove('revealed');
+    } else {
+      revealedByPlayer[i] = true;
+      e.currentTarget.classList.add('revealed');
+    }
+  }
+
+  function evaluateRound(){
+    clearTimer();
+    challengeCells.forEach(function(i){
+      cellEl(i).removeEventListener('click', onCellClick);
+    });
+
+    var secretSet = {};
+    secretCells.forEach(function(i){ secretSet[i] = true; });
+
+    var allCorrect = true;
+    challengeCells.forEach(function(i){
+      var wasSecret = !!secretSet[i];
+      var claimed = !!revealedByPlayer[i];
+      var el = cellEl(i);
+      if (wasSecret && claimed){
+        el.classList.add('flash-correct');
+      } else if (!wasSecret && !claimed){
+        el.classList.add('flash-correct');
+      } else if (wasSecret && !claimed){
+        el.classList.add('flash-missed');
+        allCorrect = false;
+      } else {
+        el.classList.add('flash-wrong');
+        allCorrect = false;
+      }
+    });
+
+    if (allCorrect) successes++;
+    setStatus(allCorrect ? 'proof accepted' : 'proof rejected', allCorrect ? 'accept' : 'reject');
+    submitBtn.classList.add('hidden');
+
+    setTimeout(function(){
+      if (round >= TOTAL_ROUNDS){
+        endGame();
+      } else {
+        nextRound();
+      }
+    }, 1100);
+  }
+
+  function setStatus(text, cls){
+    statusLine.textContent = text;
+    statusLine.className = 'status-line' + (cls ? ' ' + cls : '');
+  }
+
+  function runTimer(duration, cb){
+    clearTimer();
+    var start = performance.now();
+    timerFill.style.transition = 'none';
+    timerFill.style.transform = 'scaleX(1)';
+    void timerFill.offsetWidth;
+    timerFill.style.transition = 'transform ' + duration + 'ms linear';
+    timerFill.style.transform = 'scaleX(0)';
+    timerHandle = setTimeout(function(){
+      timerHandle = null;
+      cb();
+    }, duration);
+  }
+
+  function clearTimer(){
+    if (timerHandle){
+      clearTimeout(timerHandle);
+      timerHandle = null;
+    }
+    timerFill.style.transition = 'none';
+    timerFill.style.transform = 'scaleX(1)';
+  }
+
+  function endGame(){
+    screenGame.classList.add('hidden');
+    screenEnd.classList.remove('hidden');
+    var passed = successes >= NEEDED_TO_PASS;
+    endText.innerHTML = passed
+      ? '<b style="color:#4dd8c4">identity verified</b><br>' + successes + ' of ' + TOTAL_ROUNDS + ' proofs accepted'
+      : '<b style="color:#e14f8a">verification failed</b><br>' + successes + ' of ' + TOTAL_ROUNDS + ' proofs accepted, ' + NEEDED_TO_PASS + ' needed';
+    drawAvatar(passed);
+  }
+
+  function drawAvatar(colorful){
+    var canvas = document.getElementById('avatarCanvas');
+    var ctx = canvas.getContext('2d');
+    ctx.imageSmoothingEnabled = false;
+    var size = 8;
+    var scale = canvas.width / size;
+    var palette = colorful
+      ? ['#4dd8c4', '#8b7cf6', '#e14f8a', '#f4c04d', '#4d9ef4', '#e8ecf1']
+      : ['#232a35', '#2c3542', '#1c222c'];
+    ctx.fillStyle = '#0a0c10';
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    var half = size / 2;
+    var map = [];
+    for (var y = 0; y < size; y++){
+      map[y] = [];
+      for (var x = 0; x < half; x++){
+        var draw = Math.random() > 0.45;
+        map[y][x] = draw ? palette[Math.floor(Math.random() * palette.length)] : null;
+      }
+    }
+    for (var y = 0; y < size; y++){
+      for (var x = 0; x < size; x++){
+        var srcX = x < half ? x : (size - 1 - x);
+        var color = map[y][srcX];
+        if (color){
+          ctx.fillStyle = color;
+          ctx.fillRect(x * scale, y * scale, scale, scale);
+        }
+      }
+    }
+  }
+})();
+</script>
+</body>
+</html>
